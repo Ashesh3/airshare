@@ -1,0 +1,436 @@
+:root {
+  color-scheme: light;
+  font-family: Lato, Arial, Helvetica, sans-serif;
+  --text: #2c3e50;
+  --muted: #7b8a8b;
+  --line: #dee2e6;
+  --soft: #f8f9fa;
+  --accent: #18bc9c;
+  --accent-dark: #128f76;
+  --blue: #2c3e50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: #fff;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+a {
+  color: #18bc9c;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+
+.container {
+  width: min(100%, 1140px);
+  margin: 0 auto;
+  padding: 0 12px;
+}
+
+.site-header {
+  padding: 18px 0 10px;
+}
+
+.header-inner {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nav-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.nav-pills a {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+.nav-pills a.active {
+  color: #fff;
+  background: var(--accent);
+}
+
+.jumbotron {
+  margin: 0 0 16px;
+  padding: 32px 0;
+  background: var(--soft);
+}
+
+.jumbotron h1 {
+  margin: 0 0 8px;
+  font-family: Kanit, Arial, Helvetica, sans-serif;
+  font-size: 48px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.jumbotron p {
+  margin: 0;
+  font-size: 24px;
+}
+
+.compact-jumbotron {
+  margin-bottom: 24px;
+  padding: 28px 0 30px;
+}
+
+.compact-jumbotron h1 {
+  font-size: 46px;
+}
+
+.compact-jumbotron p {
+  font-size: 22px;
+}
+
+.primary-content {
+  display: grid;
+  grid-template-columns: 25% 1fr;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+h4 {
+  margin: 0 0 8px;
+  font-family: Kanit, Arial, Helvetica, sans-serif;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 400;
+}
+
+h5 {
+  margin: 16px 0 8px;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.add-file {
+  min-height: 142px;
+  border: 2px dashed #dee2e6;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  background: #fff;
+}
+
+.add-file:hover,
+.add-file.is-dragging {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.add-file input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.add-file p {
+  margin: 0;
+}
+
+.shared-files {
+  display: grid;
+  gap: 8px;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.empty p {
+  margin: 0;
+}
+
+.file-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+  background: #fff;
+}
+
+.file-title {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.file-title .name {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.file-title .count {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.file-url {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.upload-progress {
+  height: 4px;
+  margin-top: 8px;
+  background: #e9ecef;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.upload-progress span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+button,
+.actions a,
+.primary {
+  min-height: 28px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+button:hover,
+.actions a:hover,
+.primary:hover {
+  border-color: #95a5a6;
+  text-decoration: none;
+}
+
+.primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.primary:hover {
+  color: #fff;
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+
+.status-text {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.details {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.details div {
+  display: flex;
+  gap: 4px;
+}
+
+.details dt,
+.details dd {
+  margin: 0;
+}
+
+.details dt::after {
+  content: ":";
+}
+
+.info-content {
+  margin-top: 8px;
+}
+
+.info-content section {
+  margin-bottom: 18px;
+}
+
+.info-content p,
+.info-content ul {
+  margin-top: 0;
+}
+
+pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  color: #fff;
+  background: var(--blue);
+  border-radius: 4px;
+  overflow: auto;
+}
+
+code {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 14px;
+}
+
+.footer {
+  margin-top: 24px;
+  padding-top: 8px;
+  padding-bottom: 20px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+.footer p {
+  margin: 0;
+}
+
+.narrow {
+  width: min(100%, 720px);
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.panel h1 {
+  overflow-wrap: anywhere;
+}
+
+.muted,
+.eyebrow {
+  color: var(--muted);
+}
+
+.transfer-page {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 36px;
+}
+
+.transfer-card {
+  width: min(100%, 720px);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 18px;
+  background: #fff;
+}
+
+.transfer-card h1 {
+  margin: 0 0 8px;
+  font-family: Kanit, Arial, Helvetica, sans-serif;
+  font-size: 34px;
+  line-height: 1.2;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.transfer-card .muted {
+  margin: 0 0 16px;
+}
+
+.transfer-card .primary {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 16px;
+}
+
+.transfer-status {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.drop-zone.compact,
+.add-file.compact {
+  min-height: 92px;
+  margin: 18px 0 0;
+}
+
+@media (max-width: 700px) {
+  .header-inner {
+    justify-content: flex-start;
+  }
+
+  .jumbotron {
+    padding: 26px 0;
+  }
+
+  .jumbotron h1 {
+    font-size: 40px;
+  }
+
+  .jumbotron p {
+    font-size: 20px;
+  }
+
+  .compact-jumbotron {
+    margin-bottom: 18px;
+  }
+
+  .primary-content {
+    grid-template-columns: 1fr;
+  }
+
+  .transfer-card {
+    padding: 14px;
+  }
+
+  .transfer-card h1 {
+    font-size: 28px;
+  }
+
+  .file-card {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+}

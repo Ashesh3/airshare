@@ -1,0 +1,28 @@
+{
+  "name": "airshare",
+  "version": "0.1.0",
+  "description": "Live, server-relayed file transfer for browsers and terminals without storing files on disk.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ashesh3/airshare.git"
+  },
+  "keywords": [
+    "file-transfer",
+    "streaming",
+    "bun",
+    "relay"
+  ],
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+dump/
+.git/
+.vercel/
+*.log
+.codex-server.*.log

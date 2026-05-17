@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AirShare direct file transfer">
+  <title>AirShare</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <nav class="nav-pills" aria-label="Primary">
+        <a class="active" href="/">Home</a>
+        <a href="#recipes">Recipes</a>
+        <a href="#about">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="jumbotron">
+      <div class="container">
+        <h1>AirShare</h1>
+        <p>Send and receive files directly, with ease.</p>
+      </div>
+    </section>
+
+    <section class="container primary-content" aria-label="File transfers">
+      <div class="upload-column">
+        <h4>Add a file</h4>
+        <label id="drop-zone" class="add-file" for="file-selector">
+          <input id="file-selector" type="file" multiple title="Add a file">
+          <p>Drag &amp; drop to share a file (or click here)</p>
+        </label>
+      </div>
+
+      <div class="files-column">
+        <h4>Shared files</h4>
+        <section id="shared-files" class="shared-files">
+          <div class="empty"><p>No files have been added yet</p></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="about" class="container info-content">
+      <h4>A direct AirShare</h4>
+      <section>
+        <p>AirShare is a small file handoff tool for sending files from one browser or terminal to another without storing file contents on disk.</p>
+        <ul>
+          <li>Streams files directly through the server to waiting receivers</li>
+          <li>Works from browsers and command line tools</li>
+          <li>Allows multiple receivers to wait for the same shared file</li>
+          <li>Keeps the sender in control by requiring the sender tab or upload command to stay active</li>
+        </ul>
+      </section>
+
+      <h4>AirShare features</h4>
+      <section>
+        <ul>
+          <li>No configured file size limit</li>
+          <li>Direct send and receive links</li>
+          <li>File contents are not written to server storage</li>
+          <li>Terminal friendly</li>
+          <li>Mobile friendly</li>
+        </ul>
+      </section>
+
+      <h4 id="recipes">Use AirShare to send and receive files from your terminal</h4>
+      <section>
+        <h5>Sending files</h5>
+        <pre><code>curl -T &lt;myfile&gt; -s -L -D - http://localhost:3070/xfr | findstr /i airshare</code></pre>
+        <pre><code>wget --post-file &lt;myfile&gt; -S -o - http://localhost:3070/xfr</code></pre>
+
+        <h5>Receiving files</h5>
+        <pre><code>curl -s -J -O -L -D - http://localhost:3070/xfr</code></pre>
+        <pre><code>wget --content-disposition -S -o - http://localhost:3070/xfr</code></pre>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <p>AirShare</p>
+  </footer>
+
+  <template id="file-template">
+    <article class="file-card">
+      <div class="file-summary">
+        <div class="file-title">
+          <span class="name"></span>
+          <span class="count">(<span data-field="transfers">0</span> uploads)</span>
+        </div>
+        <div class="file-url" data-field="url"></div>
+        <div class="upload-progress"><span></span></div>
+      </div>
+      <div class="actions">
+        <button type="button" data-action="copy-human">share URL</button>
+        <button type="button" data-action="copy-direct">copy URL</button>
+        <a data-action="open" target="_blank" rel="noopener">open</a>
+        <button type="button" data-action="delete">delete</button>
+      </div>
+      <p class="status-text"></p>
+      <dl class="details">
+        <div><dt>Size</dt><dd data-field="size">0 B</dd></div>
+        <div><dt>Receivers</dt><dd data-field="receivers">0</dd></div>
+      </dl>
+    </article>
+  </template>
+
+  <script src="/app.js?v=20260516-airshare" defer></script>
+</body>
+</html>
