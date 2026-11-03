@@ -1,0 +1,29 @@
+# Optional local reverse-proxy example:
+# docker compose -f compose.yaml -f compose.proxy.yaml up --build
+services:
+  airshare:
+    # Keep the backend private; only the trusted proxy publishes a listener.
+    ports: !reset []
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:${PROXY_PORT:-3080}}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES-${AIRSHARE_PROXY_IP:-172.28.240.10}}
+      CHANNEL_CREATION_BURST: ${CHANNEL_CREATION_BURST:-30}
+  proxy:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.nginx
+    depends_on:
+      airshare:
+        condition: service_healthy
+    ports:
+      - "${AIRSHARE_BIND:-127.0.0.1}:${PROXY_PORT:-3080}:80"
+    networks:
+      default:
+        ipv4_address: ${AIRSHARE_PROXY_IP:-172.28.240.10}
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${AIRSHARE_NETWORK_CIDR:-172.28.240.0/24}

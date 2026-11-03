@@ -1,0 +1,21 @@
+# Isolated integration check; no host ports are published.
+services:
+  airshare:
+    environment:
+      PUBLIC_URL: http://airshare-long-domain-header-compatibility.example.test
+  proxy:
+    ports: !reset []
+    networks:
+      default:
+        aliases:
+          - airshare-long-domain-header-compatibility.example.test
+  smoke:
+    build:
+      context: .
+      target: test
+    command: ["bun", "scripts/proxy-smoke.ts"]
+    environment:
+      AIRSHARE_PROXY_TEST_URL: http://airshare-long-domain-header-compatibility.example.test
+    depends_on:
+      proxy:
+        condition: service_started

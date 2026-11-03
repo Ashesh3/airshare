@@ -4,3 +4,7 @@ dump/
 .vercel/
 *.log
 .codex-server.*.log
+data/
+.env
+docs/
+benchmark-results*.json

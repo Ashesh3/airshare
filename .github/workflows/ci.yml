@@ -1,0 +1,33 @@
+name: Test
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - if: runner.os == 'Linux'
+        run: docker build -t airshare:test .
+      - if: runner.os == 'Linux'
+        run: docker build --target test -t airshare:tests .
+      - if: runner.os == 'Linux'
+        run: docker run --rm airshare:tests
+      - if: runner.os == 'Linux'
+        run: docker compose -p airshare-proxy-ci -f compose.yaml -f compose.proxy.yaml -f compose.smoke.yaml up --build --abort-on-container-exit --exit-code-from smoke
+      - if: always() && runner.os == 'Linux'
+        run: docker compose -p airshare-proxy-ci -f compose.yaml -f compose.proxy.yaml -f compose.smoke.yaml down --volumes

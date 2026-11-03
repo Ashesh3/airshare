@@ -1,206 +1,242 @@
-const fileInput = document.querySelector("#file-selector");
-const dropZone = document.querySelector("#drop-zone");
-const sharedFiles = document.querySelector("#shared-files");
-const template = document.querySelector("#file-template");
+(() => {
+  "use strict";
+  const { HostSession, bindFileInput, copyText, formatBytes, hostStatus, requestJSON, responseError } = window.AirShare;
+  const fileInput = document.querySelector("#file-selector");
+  const sharedFiles = document.querySelector("#shared-files");
+  const template = document.querySelector("#file-template");
+  const notice = document.querySelector("#notice");
+  const shares = new Map();
+  const STORAGE_KEY = "airshare.shares.v1";
+  let leaving = false;
+  let noticeTimer = null;
 
-const channels = new Map();
+  function announce(message, error = false) {
+    if (!notice) return;
+    clearTimeout(noticeTimer);
+    noticeTimer = null;
+    notice.textContent = message;
+    notice.hidden = !message;
+    notice.classList.toggle("is-error", error);
+    if (!error && message) noticeTimer = setTimeout(() => {
+      notice.textContent = "";
+      notice.hidden = true;
+      noticeTimer = null;
+    }, 4000);
+  }
 
-fileInput.addEventListener("change", () => {
-  addFiles(Array.from(fileInput.files ?? []));
-});
-
-dropZone.addEventListener("dragover", (event) => {
-  event.preventDefault();
-  dropZone.classList.add("is-dragging");
-});
-
-dropZone.addEventListener("dragleave", () => {
-  dropZone.classList.remove("is-dragging");
-});
-
-dropZone.addEventListener("drop", (event) => {
-  event.preventDefault();
-  dropZone.classList.remove("is-dragging");
-  addFiles(Array.from(event.dataTransfer.files ?? []));
-});
-
-async function addFiles(fileList) {
-  for (const file of fileList) {
-    try {
-      const channel = await createChannel(file);
-      channel.fileObject = file;
-      channel.expectedSize = file.size;
-      channel.uploading = false;
-      channel.abortController = null;
-      channel.eventSource = new EventSource(channel.eventsUrl);
-      channel.eventSource.addEventListener("status", (event) => {
-        Object.assign(channel, JSON.parse(event.data));
-        renderChannel(channel);
-        maybeUpload(channel);
-      });
-      channels.set(channel.id, channel);
-      renderChannel(channel);
-    } catch (error) {
-      alert(`Could not share ${file.name}: ${error.message}`);
+  function saveShares() {
+    const saved = Array.from(shares.values()).filter((share) => !share.removed).map((share) => ({
+      channel: share.session.channel,
+      originalFile: share.originalFile,
+    }));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch {
+      announce("Shares are active, but this browser cannot remember their links after a reload.");
     }
   }
-}
 
-async function createChannel(file) {
-  const response = await fetch("/api/channels", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      filename: file.name,
-      contentType: file.type || "application/octet-stream",
-      contentLength: file.size,
-    }),
-  });
-
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
-}
-
-function renderChannel(channel) {
-  document.querySelector(".empty")?.remove();
-
-  let card = sharedFiles.querySelector(`[data-channel="${channel.id}"]`);
-  if (!card) {
-    card = template.content.firstElementChild.cloneNode(true);
-    card.dataset.channel = channel.id;
-    card.querySelector(".name").textContent = channel.file.filename;
-    card.querySelector('[data-field="url"]').textContent = channel.humanUrl;
-    card.querySelector('[data-action="open"]').href = channel.humanUrl;
-    card.querySelector('[data-action="copy-human"]').addEventListener("click", () => copy(channel.humanUrl));
-    card.querySelector('[data-action="copy-direct"]').addEventListener("click", () => copy(channel.downloadUrl));
-    card.querySelector('[data-action="delete"]').addEventListener("click", () => removeChannel(channel));
-    sharedFiles.append(card);
-  }
-
-  const receivers = channel.waitingReceivers ?? 0;
-  const transfers = channel.completedTransfers ?? 0;
-  const status = card.querySelector(".status-text");
-  const progress = card.querySelector(".upload-progress span");
-
-  card.querySelector('[data-field="receivers"]').textContent = String(receivers);
-  card.querySelector('[data-field="transfers"]').textContent = String(transfers);
-  card.querySelector('[data-field="size"]').textContent = formatBytes(channel.file?.contentLength ?? channel.expectedSize ?? 0);
-
-  if (channel.uploading) {
-    status.textContent = `Streaming ${formatPercent(channel.progress)} to ${channel.currentReceivers || receivers || 1} receiver${(channel.currentReceivers || receivers || 1) === 1 ? "" : "s"}.`;
-    progress.style.width = `${Math.max(channel.progress || 3, 3)}%`;
-    return;
-  }
-
-  progress.style.width = "0%";
-  if (receivers > 0) {
-    status.textContent = `${receivers} receiver${receivers === 1 ? "" : "s"} waiting. Starting upload.`;
-  } else {
-    status.textContent = "Share URL is ready. Keep this tab open while receivers download.";
-  }
-}
-
-async function maybeUpload(channel) {
-  if (channel.uploading || !channel.fileObject || (channel.waitingReceivers ?? 0) === 0) return;
-  channel.uploading = true;
-  channel.progress = 0;
-  channel.currentReceivers = channel.waitingReceivers;
-  channel.abortController = new AbortController();
-  renderChannel(channel);
-
-  try {
-    await uploadFile(channel);
-  } catch (error) {
-    if (error.name !== "AbortError") {
-      const card = sharedFiles.querySelector(`[data-channel="${channel.id}"]`);
-      if (card) card.querySelector(".status-text").textContent = `Transfer failed: ${error.message}`;
-    }
-  } finally {
-    channel.uploading = false;
-    channel.progress = 0;
-    channel.currentReceivers = 0;
-    channel.abortController = null;
-    renderChannel(channel);
-  }
-}
-
-async function uploadFile(channel) {
-  const file = channel.fileObject;
-  await uploadWithProgress(channel, file, (progress) => {
-    channel.progress = progress;
-    renderChannel(channel);
-  });
-
-  channel.progress = 100;
-  renderChannel(channel);
-}
-
-function uploadWithProgress(channel, file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const abort = () => xhr.abort();
-
-    xhr.open("POST", channel.uploadUrl, true);
-    xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
-    xhr.setRequestHeader("x-airshare-no-redirect", "1");
-    xhr.setRequestHeader("x-airshare-file-size", String(file.size));
-
-    xhr.upload.addEventListener("progress", (event) => {
-      if (!event.lengthComputable || event.total === 0) {
-        onProgress(5);
-        return;
-      }
-      onProgress(Math.max(1, Math.round((event.loaded / event.total) * 100)));
-    });
-
-    xhr.addEventListener("load", () => {
-      channel.abortController.signal.removeEventListener("abort", abort);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve();
-      } else {
-        reject(new Error(xhr.responseText || `Upload failed with HTTP ${xhr.status}`));
-      }
-    });
-    xhr.addEventListener("error", () => reject(new Error("Upload failed")));
-    xhr.addEventListener("abort", () => reject(new DOMException("Upload aborted", "AbortError")));
-
-    channel.abortController.signal.addEventListener("abort", abort, { once: true });
-    onProgress(1);
-    xhr.send(file);
-  });
-}
-
-async function removeChannel(channel) {
-  channel.abortController?.abort();
-  channel.eventSource?.close();
-  channels.delete(channel.id);
-  await fetch(`/api/channels/${channel.id}`, { method: "DELETE" }).catch(() => {});
-  sharedFiles.querySelector(`[data-channel="${channel.id}"]`)?.remove();
-  if (!sharedFiles.children.length) {
+  function renderEmpty() {
+    if (shares.size) return;
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = "No files have been added yet";
     sharedFiles.append(empty);
   }
-}
 
-async function copy(text) {
-  await navigator.clipboard.writeText(text);
-}
-
-function formatPercent(value) {
-  return `${Math.max(0, Math.min(100, Math.round(value || 0)))}%`;
-}
-
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes)) return "unknown";
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let value = bytes / 1024;
-  let unit = units[0];
-  for (let index = 1; value >= 1024 && index < units.length; index += 1) {
-    value /= 1024;
-    unit = units[index];
+  function render(share) {
+    if (share.removed || leaving) return;
+    const { card, session } = share;
+    const channel = session.channel;
+    const file = session.file;
+    card.querySelector(".name").textContent = file?.name || channel.file?.filename || "Untitled file";
+    const link = card.querySelector('[data-field="url"]');
+    link.textContent = channel.downloadUrl;
+    link.href = channel.downloadUrl;
+    card.querySelector('[data-field="size"]').textContent = formatBytes(file?.size ?? channel.file?.contentLength);
+    card.querySelector('[data-field="receivers"]').textContent = String(channel.waitingReceivers || 0);
+    card.querySelector('[data-field="transfers"]').textContent = String(channel.completedTransfers || 0);
+    card.querySelector(".status-text").textContent = share.removeError || hostStatus(session);
+    card.classList.toggle("has-error", Boolean(session.error || share.removeError || session.connection.closed || session.connection.reconnecting));
+    const bar = card.querySelector(".upload-progress");
+    const amount = Math.max(0, Math.min(100, session.progress || 0));
+    bar.setAttribute("aria-valuenow", String(Math.floor(amount)));
+    bar.setAttribute("aria-valuetext", session.uploading ? `Upload ${Math.floor(amount)} percent` : session.completed ? "Transfer complete" : "Waiting");
+    card.querySelector(".upload-progress span").style.width = `${amount}%`;
+    const retry = card.querySelector('[data-action="retry"]');
+    retry.hidden = !session.error || session.connection.closed;
+    retry.disabled = session.uploading || session.reconciling;
+    const resume = card.querySelector('[data-action="resume"]');
+    resume.hidden = Boolean(session.file) || session.connection.closed;
+    card.querySelector('[data-action="delete"]').textContent = "delete";
   }
-  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${unit}`;
-}
+
+  async function copyLink(share, direct = false) {
+    try {
+      await copyText(direct ? share.session.channel.downloadUrl : share.session.channel.humanUrl);
+      announce(direct ? "Direct download link copied." : "Share link copied.");
+    } catch (error) { announce(`Could not copy. ${error.message}`, true); }
+  }
+
+  function addShare(channel, file = null, originalFile = null) {
+    document.querySelector(".empty")?.remove();
+    const card = template.content.firstElementChild.cloneNode(true);
+    card.dataset.channel = channel.id;
+    const share = { card, removed: false, removeError: "", originalFile, session: null };
+    share.session = new HostSession(channel, () => render(share));
+    if (file) share.originalFile = { name: file.name, size: file.size, lastModified: file.lastModified };
+    shares.set(channel.id, share);
+    sharedFiles.append(card);
+    card.querySelector('[data-action="copy-human"]').addEventListener("click", () => copyLink(share));
+    card.querySelector('[data-action="copy-direct"]').addEventListener("click", () => copyLink(share, true));
+    card.querySelector('[data-action="delete"]').addEventListener("click", () => removeShare(share));
+    card.querySelector('[data-action="retry"]').addEventListener("click", () => share.session.retry());
+    card.querySelector('[data-action="qr"]').addEventListener("click", (event) => showShare(share, event.currentTarget));
+    const resumeInput = card.querySelector('[data-action="resume-file"]');
+    card.querySelector('[data-action="resume"]').addEventListener("click", () => resumeInput.click());
+    resumeInput.addEventListener("change", () => {
+      const selected = resumeInput.files?.[0];
+      resumeInput.value = "";
+      if (!selected) return;
+      const expected = share.originalFile || { name: channel.file.filename, size: channel.file.contentLength };
+      if (selected.name !== expected.name || (expected.size !== undefined && selected.size !== expected.size)
+        || (expected.lastModified !== undefined && selected.lastModified !== expected.lastModified)) {
+        announce("Choose the original file to resume this link. Add a changed file as a new share.", true);
+        return;
+      }
+      share.session.setFile(selected);
+      saveShares();
+    });
+    if (file) share.session.setFile(file); else share.session.connect();
+    render(share);
+    return share;
+  }
+
+  async function addFiles(files) {
+    const failures = [];
+    for (const file of files) {
+      if (leaving) break;
+      announce(`Preparing ${file.name}…`);
+      try {
+        const channel = await requestJSON("/api/channels", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream", contentLength: file.size }),
+        });
+        if (leaving) return;
+        addShare(channel, file);
+        saveShares();
+        announce(`${file.name} is ready to share.`);
+      } catch (error) {
+        failures.push(`${file.name}: ${error.message}`);
+        announce(`Could not share ${file.name}: ${error.message}`, true);
+      }
+    }
+    if (failures.length) announce(`Could not share ${failures.join("; ")}`, true);
+  }
+
+  async function removeShare(share) {
+    if (share.removed) return;
+    // Stop local work before awaiting the server, so no callback can revive it.
+    share.session.pause();
+    const button = share.card.querySelector('[data-action="delete"]');
+    button.disabled = true;
+    try {
+      if (!share.session.connection.closed) {
+        const url = share.session.channel.deleteUrl || `/api/channels/${encodeURIComponent(share.session.channel.id)}`;
+        const response = await fetch(url, { method: "DELETE" });
+        if (!response.ok && response.status !== 404 && response.status !== 410) throw await responseError(response);
+      }
+      share.removed = true;
+      share.session.dispose();
+      shares.delete(share.session.channel.id);
+      share.card.remove();
+      saveShares();
+      renderEmpty();
+      announce("Sharing stopped and the link removed.");
+    } catch (error) {
+      share.removeError = `Hosting stopped here. Could not close the link: ${error.message}. Try delete again.`;
+      button.disabled = false;
+      render(share);
+    }
+  }
+
+  const dialog = document.querySelector("#share-dialog");
+  const shareUrl = document.querySelector("#share-url");
+  const shareFeedback = document.querySelector("#share-feedback");
+  const shareCaption = document.querySelector("#share-caption");
+  const qr = document.querySelector("#share-qr");
+  let shareTrigger = null;
+  let activeShareUrl = "";
+  function showShare(share, trigger) {
+    if (!dialog) return;
+    const url = share.session.channel.humanUrl;
+    const filename = share.session.file?.name || share.session.channel.file.filename;
+    activeShareUrl = url;
+    shareTrigger = trigger;
+    if (shareUrl) shareUrl.value = url;
+    qr.src = `/api/qr?url=${encodeURIComponent(url)}`;
+    qr.hidden = false;
+    qr.alt = `QR code for ${filename}`;
+    if (shareCaption) shareCaption.textContent = "Scan the QR code to download the file";
+    if (shareFeedback) shareFeedback.textContent = "";
+    if (!dialog.open) dialog.showModal();
+    document.querySelector("#share-close")?.focus();
+  }
+  qr?.addEventListener("error", () => {
+    const message = "QR code unavailable. Close this view and use share URL to copy the link.";
+    qr.hidden = true;
+    if (shareCaption) shareCaption.textContent = message;
+    if (shareFeedback) shareFeedback.textContent = message;
+  });
+  document.querySelector("#share-close")?.addEventListener("click", () => dialog.close());
+  dialog?.addEventListener("click", (event) => {
+    // The full-screen QR surface dismisses on click; compatibility copy controls
+    // remain operable if they are exposed by an accessible or fallback view.
+    if (!event.target.closest?.("button, input, textarea, a, select, label")) dialog.close();
+  });
+  dialog?.addEventListener("close", () => {
+    if (shareTrigger?.isConnected !== false) shareTrigger?.focus();
+  });
+  document.querySelector("#share-copy")?.addEventListener("click", async () => {
+    try { await copyText(shareUrl?.value || activeShareUrl); if (shareFeedback) shareFeedback.textContent = "Share link copied."; }
+    catch (error) { if (shareFeedback) shareFeedback.textContent = `Could not copy. ${error.message}`; shareUrl?.select(); }
+  });
+
+  bindFileInput(fileInput, document.querySelector("#drop-zone"), addFiles);
+  for (const code of document.querySelectorAll("[data-recipe]")) {
+    code.textContent = code.dataset.recipe.replaceAll("{{origin}}", location.origin);
+  }
+
+  function restoreShares() {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return; }
+    if (!Array.isArray(saved)) return;
+    for (const item of saved.slice(0, 50)) {
+      const channel = item?.channel;
+      if (!channel || typeof channel.id !== "string" || typeof channel.eventsUrl !== "string") continue;
+      const urls = [channel.eventsUrl, channel.statusUrl, channel.uploadUrl, channel.humanUrl, channel.downloadUrl, channel.deleteUrl].filter(Boolean);
+      try {
+        if (urls.some((url) => new URL(url, location.href).origin !== location.origin)) continue;
+        if (!channel.uploadUrl || !channel.humanUrl || !channel.file) continue;
+        if (!leaving && !shares.has(channel.id)) addShare(channel, null, item.originalFile);
+      } catch {}
+    }
+  }
+  restoreShares();
+
+  window.addEventListener("beforeunload", (event) => {
+    if (Array.from(shares.values()).some((share) => share.session.uploading)) { event.preventDefault(); event.returnValue = ""; }
+  });
+  window.addEventListener("pagehide", () => {
+    leaving = true;
+    clearTimeout(noticeTimer);
+    noticeTimer = null;
+    if (notice) { notice.textContent = ""; notice.hidden = true; }
+    for (const share of shares.values()) share.session.suspend();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    leaving = false;
+    for (const share of shares.values()) share.session.resume();
+  });
+  window.addEventListener("online", () => { for (const share of shares.values()) void share.session.connection.refresh(); });
+})();

@@ -1,0 +1,38 @@
+# Use this INSTEAD OF compose.proxy.yaml for automatic HTTPS with Caddy.
+services:
+  airshare:
+    ports: !reset []
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-https://${AIRSHARE_DOMAIN:?Set AIRSHARE_DOMAIN to your domain}}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES-${AIRSHARE_PROXY_IP:-172.28.240.10}}
+      CHANNEL_CREATION_BURST: ${CHANNEL_CREATION_BURST:-30}
+  caddy:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.caddy
+    environment:
+      AIRSHARE_DOMAIN: ${AIRSHARE_DOMAIN:?Set AIRSHARE_DOMAIN to your domain}
+    depends_on:
+      airshare:
+        condition: service_healthy
+    ports:
+      - "${AIRSHARE_BIND:-127.0.0.1}:${CADDY_HTTP_PORT:-80}:80"
+      - "${AIRSHARE_BIND:-127.0.0.1}:${CADDY_HTTPS_PORT:-443}:443"
+      - "${AIRSHARE_BIND:-127.0.0.1}:${CADDY_HTTPS_PORT:-443}:443/udp"
+    networks:
+      default:
+        ipv4_address: ${AIRSHARE_PROXY_IP:-172.28.240.10}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${AIRSHARE_NETWORK_CIDR:-172.28.240.0/24}

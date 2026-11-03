@@ -1,0 +1,10 @@
+{$AIRSHARE_DOMAIN} {
+	reverse_proxy airshare:3070 {
+		# Forward live download/SSE chunks immediately.
+		flush_interval -1
+		transport http {
+			read_timeout 24h
+			write_timeout 24h
+		}
+	}
+}

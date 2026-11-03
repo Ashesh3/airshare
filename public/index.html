@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="AirShare direct file transfer">
   <title>AirShare</title>
+  <link rel="preload" href="/fonts/lato-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/kanit-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#transfers">Skip to file transfers</a>
   <header class="site-header">
     <div class="container header-inner">
       <nav class="nav-pills" aria-label="Primary">
-        <a class="active" href="/">Home</a>
-        <a href="#recipes">Recipes</a>
-        <a href="#about">About</a>
+        <a class="active" href="/">Home</a><a href="/recipes">Recipes</a><a href="/about">About</a>
       </nav>
     </div>
   </header>
-
   <main>
     <section class="jumbotron">
       <div class="container">
@@ -25,88 +25,109 @@
         <p>Send and receive files directly, with ease.</p>
       </div>
     </section>
-
-    <section class="container primary-content" aria-label="File transfers">
-      <div class="upload-column">
-        <h4>Add a file</h4>
-        <label id="drop-zone" class="add-file" for="file-selector">
-          <input id="file-selector" type="file" multiple title="Add a file">
-          <p>Drag &amp; drop to share a file (or click here)</p>
-        </label>
-      </div>
-
-      <div class="files-column">
-        <h4>Shared files</h4>
-        <section id="shared-files" class="shared-files">
-          <div class="empty"><p>No files have been added yet</p></div>
-        </section>
-      </div>
-    </section>
-
-    <section id="about" class="container info-content">
-      <h4>A direct AirShare</h4>
-      <section>
-        <p>AirShare is a small file handoff tool for sending files from one browser or terminal to another without storing file contents on disk.</p>
-        <ul>
-          <li>Streams files directly through the server to waiting receivers</li>
-          <li>Works from browsers and command line tools</li>
-          <li>Allows multiple receivers to wait for the same shared file</li>
-          <li>Keeps the sender in control by requiring the sender tab or upload command to stay active</li>
-        </ul>
+    <p id="notice" class="notice" role="status" aria-live="polite" aria-atomic="true"></p>
+    <div class="container">
+      <section id="transfers" class="primary-content" aria-label="File transfers">
+        <div class="upload-column">
+          <h2 class="section-title">Add a file</h2>
+          <label id="drop-zone" class="add-file" for="file-selector">
+            <input id="file-selector" type="file" multiple title="Add a file">
+            <p>Drag &amp; drop to share a file (or click here)</p>
+          </label>
+        </div>
+        <div class="files-column">
+          <h2 class="section-title">Shared files</h2>
+          <section id="shared-files" class="shared-files">
+            <div class="empty"><p>No files have been added yet</p></div>
+          </section>
+        </div>
       </section>
-
-      <h4>AirShare features</h4>
-      <section>
-        <ul>
-          <li>No configured file size limit</li>
-          <li>Direct send and receive links</li>
-          <li>File contents are not written to server storage</li>
-          <li>Terminal friendly</li>
-          <li>Mobile friendly</li>
-        </ul>
+      <section id="about" class="info-content">
+        <div class="info-column">
+          <h2 class="section-title">A <em>new</em> AirShare</h2>
+          <section>
+            <p>AirShare brings browser and terminal file transfers to a self-hosted, open-source app. It keeps the familiar live-streaming workflow, gives you control of the relay, and supports large files and multiple receivers without saving file contents on the server. Features include:</p>
+            <ul>
+              <li>Fast streaming with backpressure and bounded memory</li>
+              <li>Separate sender and receiver links</li>
+              <li>Receiving a file from your terminal</li>
+              <li>Sending to multiple receivers at once</li>
+              <li>QR codes for sharing with another device</li>
+              <li>Channel links that survive server restarts</li>
+            </ul>
+            <p>Keep the sender tab or terminal running during the transfer. File contents are never stored on the server, and no application file-size limit is configured by default.</p>
+            <p>AirShare is independent open-source software. Visit <a href="https://github.com/Ashesh3/airshare" target="_blank" rel="noopener noreferrer">the project</a> for source code, feedback, and self-hosting instructions.</p>
+          </section>
+          <h2 class="section-title">AirShare features</h2>
+          <section>
+            <ul>
+              <li>No configured file-size limit</li>
+              <li>Direct send and receive links</li>
+              <li>Free and open source</li>
+              <li>File contents are never stored on the server</li>
+              <li>HTTPS when configured on your host</li>
+              <li>File hosting ends when the sender disconnects</li>
+              <li>Terminal friendly</li>
+              <li>Mobile friendly</li>
+            </ul>
+          </section>
+          <h2 class="section-title">Stay in touch</h2>
+          <section>
+            <p>Found a problem or have a suggestion? <a href="https://github.com/Ashesh3/airshare/issues" target="_blank" rel="noopener noreferrer">Open an issue</a> or contribute to AirShare.</p>
+          </section>
+          <h2 id="recipes" class="section-title">Use AirShare to send and receive files from your terminal</h2>
+          <h3 class="subsection-title">Sending files</h3>
+          <section>
+            <b>Sending a file with cURL</b>
+            <pre><code data-recipe="curl -T &quot;./myfile.zip&quot; -L --max-redirs -1 -D - &quot;{{origin}}/xfr/myfile.zip&quot;">curl -T "./myfile.zip" -L --max-redirs -1 -D - "/xfr/myfile.zip"</code></pre>
+          </section>
+          <section>
+            <b>Sending a file with Wget</b>
+            <pre><code data-recipe="wget --post-file=&quot;./myfile.zip&quot; --max-redirect=1000000 --server-response --output-document=- &quot;{{origin}}/xfr/myfile.zip&quot;">wget --post-file="./myfile.zip" --max-redirect=1000000 --server-response --output-document=- "/xfr/myfile.zip"</code></pre>
+          </section>
+          <section><p>Keep the command running to host the file. Press <kbd>CTRL+C</kbd> to stop.</p></section>
+          <h3 class="subsection-title">Receiving files</h3>
+          <section>
+            <b>Receiving a file with cURL</b>
+            <pre><code data-recipe="curl -f -L -J -O -D - &quot;{{origin}}/xfr&quot;">curl -f -L -J -O -D - "/xfr"</code></pre>
+          </section>
+          <section>
+            <b>Receiving a file with Wget</b>
+            <pre><code data-recipe="wget --content-disposition --server-response &quot;{{origin}}/xfr&quot;">wget --content-disposition --server-response "/xfr"</code></pre>
+          </section>
+          <section><p>For folders, encrypted output and other piped input, see <a href="/recipes">the recipes</a>. Prepare the channel before streaming non-rewindable input.</p></section>
+        </div>
       </section>
-
-      <h4 id="recipes">Use AirShare to send and receive files from your terminal</h4>
-      <section>
-        <h5>Sending files</h5>
-        <pre><code>curl -T &lt;myfile&gt; -s -L -D - http://localhost:3070/xfr | findstr /i airshare</code></pre>
-        <pre><code>wget --post-file &lt;myfile&gt; -S -o - http://localhost:3070/xfr</code></pre>
-
-        <h5>Receiving files</h5>
-        <pre><code>curl -s -J -O -L -D - http://localhost:3070/xfr</code></pre>
-        <pre><code>wget --content-disposition -S -o - http://localhost:3070/xfr</code></pre>
-      </section>
-    </section>
+    </div>
   </main>
-
-  <footer class="footer container">
-    <p>AirShare</p>
-  </footer>
-
+  <footer class="footer"><div class="container"><p>© 2026 AirShare | <a href="/privacy">privacy</a> | <a href="/license">license</a></p></div></footer>
   <template id="file-template">
     <article class="file-card">
       <div class="file-summary">
-        <div class="file-title">
-          <span class="name"></span>
-          <span class="count">(<span data-field="transfers">0</span> uploads)</span>
-        </div>
-        <div class="file-url" data-field="url"></div>
-        <div class="upload-progress"><span></span></div>
+        <div class="file-title"><span class="name"></span> <span class="count">(<span data-field="transfers">0</span> uploads)</span></div>
+        <a class="file-url" data-field="url" data-action="open"></a>
+        <div class="upload-progress" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
       </div>
-      <div class="actions">
-        <button type="button" data-action="copy-human">share URL</button>
-        <button type="button" data-action="copy-direct">copy URL</button>
-        <a data-action="open" target="_blank" rel="noopener">open</a>
-        <button type="button" data-action="delete">delete</button>
+      <div class="actions"><button type="button" data-action="qr">QR</button><button type="button" data-action="copy-human">share URL</button> <button type="button" data-action="copy-direct">copy URL</button> <button type="button" data-action="delete">delete</button></div>
+      <div class="recovery-actions">
+        <button type="button" data-action="retry" hidden>Retry transfer</button>
+        <button type="button" data-action="resume" hidden>Select file again</button>
+        <input type="file" data-action="resume-file" hidden aria-label="Select the original file to resume hosting">
       </div>
-      <p class="status-text"></p>
-      <dl class="details">
-        <div><dt>Size</dt><dd data-field="size">0 B</dd></div>
-        <div><dt>Receivers</dt><dd data-field="receivers">0</dd></div>
-      </dl>
+      <p class="status-text" role="status" aria-live="polite" aria-atomic="true"></p>
+      <dl class="details"><div><dt>Size</dt><dd data-field="size">0 B</dd></div><div><dt>Waiting receivers</dt><dd data-field="receivers">0</dd></div></dl>
     </article>
   </template>
-
-  <script src="/app.js?v=20260516-airshare" defer></script>
+  <dialog id="share-dialog" class="share-dialog" aria-labelledby="share-caption">
+    <button id="share-close" type="button" class="visually-hidden">Close QR code</button>
+    <img id="share-qr" width="320" height="320" alt="QR code for the share link">
+    <p id="share-caption">Scan the QR code to download the file</p>
+    <input id="share-url" type="hidden">
+    <button id="share-copy" type="button" hidden>Copy link</button>
+    <p id="share-feedback" class="share-feedback" role="status" aria-live="polite"></p>
+  </dialog>
+  <noscript><p class="container">Enable JavaScript to host files from this browser. Terminal transfers work without JavaScript.</p></noscript>
+  <script src="/transfer.js" defer></script>
+  <script src="/app.js" defer></script>
 </body>
 </html>

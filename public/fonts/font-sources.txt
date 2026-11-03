@@ -1,0 +1,19 @@
+Exact Station307 Latin subsets downloaded 2026-11-03 for visual reference.
+
+lato-400.woff2: https://www.station307.com/_app/immutable/assets/lato-latin-400-normal.BEhtfm5r.woff2
+lato-700.woff2: https://www.station307.com/_app/immutable/assets/lato-latin-700-normal.BUGMgin4.woff2
+lato-400-italic.woff2: https://www.station307.com/_app/immutable/assets/lato-latin-400-italic.Dc0B1559.woff2
+kanit-400.woff2: https://www.station307.com/_app/immutable/assets/kanit-latin-400-normal.C1Jk-JCr.woff2
+kanit-700.woff2: https://www.station307.com/_app/immutable/assets/kanit-latin-700-normal.exUo0LM1.woff2
+
+Lato license: https://raw.githubusercontent.com/google/fonts/main/ofl/lato/OFL.txt
+Kanit license: https://raw.githubusercontent.com/google/fonts/main/ofl/kanit/OFL.txt
+Both SIL Open Font License 1.1. Retain the accompanying copyright/license text when redistributing. Lato reserves its font name; files were downloaded unchanged.
+Lato upstream: https://github.com/google/fonts/tree/main/ofl/lato
+Kanit upstream: https://github.com/cadsondemak/kanit
+
+Reference CSS:
+https://www.station307.com/_app/immutable/assets/0.BhmXmLWB.css
+https://www.station307.com/_app/immutable/assets/8.C8cdllgx.css
+https://www.station307.com/_app/immutable/assets/2.ChNV3y-H.css
+https://www.station307.com/_app/immutable/assets/3.DvrIv0xs.css
