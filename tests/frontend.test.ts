@@ -971,6 +971,32 @@ describe("browser transfer lifecycle", () => {
     expect(app.uploads[1]!.body).toBe(app.file);
   });
 
+  test("an upload the relay answers with 503 stopping as it restarts is sent again once the relay is back, unlike other 503s", async () => {
+    for (const reason of ["stopping", "upload_failed"]) {
+      const app = await browser();
+      await app.share();
+      await app.status({ waitingReceivers: 1 });
+      const offline = () => Promise.reject(new TypeError("Failed to fetch"));
+      app.setStatusResponse(offline);
+      app.setPresenceResponse(offline);
+      // The answer can arrive before the status stream notices the relay going away.
+      const error = reason === "stopping" ? "The server is restarting; retry shortly" : "Relay error";
+      const answer = { error, reason, retryable: false };
+      await app.uploads[0]!.finish(503, JSON.stringify(answer), { "retry-after": "5" });
+      app.stream!.readyState = 0;
+      await app.stream!.emit("error");
+      await app.advance(0);
+      expect(app.card!.querySelector(".status-text")!.textContent, reason).toMatch(/^Transfer failed/);
+      app.setStatusResponse(null);
+      app.setPresenceResponse(null);
+      await app.reconnect();
+      await app.status({ waitingReceivers: 1, activeUpload: false });
+      await app.advance(500);
+      expect(app.uploads, reason).toHaveLength(reason === "stopping" ? 2 : 1);
+      expect(app.card!.classList.contains("has-error"), reason).toBe(reason !== "stopping");
+    }
+  });
+
   test("an interrupted upload is not retried while the relay never dropped the page's status connection", async () => {
     const app = await browser();
     await app.share();

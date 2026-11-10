@@ -638,6 +638,9 @@
           );
           error.reason = details?.reason;
           error.retryable = details?.retryable === true && (xhr.status === 409 || xhr.status === 408);
+          // A relay that is shutting down answers the upload before it closes the connection. Whether the browser
+          // reads that answer or only sees the connection drop depends on the platform, so both are one interruption.
+          error.interrupted = xhr.status === 503 && details?.reason === "stopping";
           if (xhr.status === 429) {
             const seconds = Number(xhr.getResponseHeader?.("retry-after"));
             error.retryAfterMs = Math.min(Math.max(Number.isFinite(seconds) ? seconds * 1000 : 1000, 1000), 30000);
@@ -647,7 +650,7 @@
       });
       xhr.addEventListener("error", () => {
         const error = new Error("The connection was interrupted. Check your connection and retry.");
-        error.transportFailure = true;
+        error.interrupted = true;
         finish(error);
       });
       xhr.addEventListener("abort", () => finish(new DOMException("Upload cancelled", "AbortError")));
@@ -829,7 +832,7 @@
           else {
             this.error =
               error.name === "AbortError" ? "The upload was cancelled. Retry when you are ready." : error.message;
-            if (error.transportFailure) {
+            if (error.interrupted) {
               // An early socket close can hide a receiver-departure JSON reply.
               // Only this attempt's matching terminal outcome can reclassify it.
               this.pendingOutcome = attemptId;
