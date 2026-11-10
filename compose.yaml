@@ -12,7 +12,11 @@ services:
       DATA_DIR: /app/data
       PUBLIC_URL: ${PUBLIC_URL:-}
       CHANNEL_TTL_MS: ${CHANNEL_TTL_MS:-86400000}
-      UNUSED_CHANNEL_TTL_MS: ${UNUSED_CHANNEL_TTL_MS:-300000}
+      UNUSED_CHANNEL_TTL_MS: ${UNUSED_CHANNEL_TTL_MS:-3600000}
+      HOST_GRACE_MS: ${HOST_GRACE_MS:-20000}
+      SENDER_LEASE_MS: ${SENDER_LEASE_MS:-10000}
+      TRANSFER_HASH: ${TRANSFER_HASH:-on}
+      LIVENESS_HINTS: ${LIVENESS_HINTS:-on}
       CLEANUP_INTERVAL_MS: ${CLEANUP_INTERVAL_MS:-60000}
       MAX_CHANNELS: ${MAX_CHANNELS:-10000}
       MAX_CHANNELS_PER_CLIENT: ${MAX_CHANNELS_PER_CLIENT:-256}
@@ -23,16 +27,20 @@ services:
       MAX_RECEIVERS: ${MAX_RECEIVERS:-4096}
       MAX_RECEIVERS_PER_CHANNEL: ${MAX_RECEIVERS_PER_CHANNEL:-64}
       MAX_RECEIVERS_PER_CLIENT: ${MAX_RECEIVERS_PER_CLIENT:-128}
+      MAX_UPLOADS_PER_CLIENT: ${MAX_UPLOADS_PER_CLIENT:-32}
       MAX_SUBSCRIBERS: ${MAX_SUBSCRIBERS:-4096}
       MAX_SUBSCRIBERS_PER_CHANNEL: ${MAX_SUBSCRIBERS_PER_CHANNEL:-64}
       MAX_SUBSCRIBERS_PER_CLIENT: ${MAX_SUBSCRIBERS_PER_CLIENT:-64}
       MAX_TRACKER_CHANNELS: ${MAX_TRACKER_CHANNELS:-256}
+      MAX_PRESENCE_KEYS: ${MAX_PRESENCE_KEYS:-256}
       MAX_DISCARDS: ${MAX_DISCARDS:-64}
       MAX_DISCARDS_PER_CLIENT: ${MAX_DISCARDS_PER_CLIENT:-8}
       MAX_REQUEST_BODY_SIZE: ${MAX_REQUEST_BODY_SIZE:-9007199254740991}
       MAX_METADATA_BYTES: ${MAX_METADATA_BYTES:-16384}
+      CONTROL_BODY_TIMEOUT_MS: ${CONTROL_BODY_TIMEOUT_MS:-10000}
       STREAM_HIGH_WATER_MARK: ${STREAM_HIGH_WATER_MARK:-65536}
       RECEIVER_STALL_TIMEOUT_MS: ${RECEIVER_STALL_TIMEOUT_MS:-120000}
+      RECEIVER_FIRST_BYTE_TIMEOUT_MS: ${RECEIVER_FIRST_BYTE_TIMEOUT_MS:-15000}
     volumes:
       - airshare-data:/app/data
     read_only: true
@@ -42,6 +50,17 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Bun runs about 25 threads, hash worker included; this only stops a runaway.
+    pids_limit: 256
+    # Idle use is about 60 MiB and a 1 GiB transfer peaks near 100 MiB, but every receiver can queue
+    # STREAM_HIGH_WATER_MARK bytes: 4096 receivers x 64 KiB is 256 MiB on top. Raise this with those limits.
+    mem_limit: 1g
+    # Each receiver, status stream and upload holds a socket. The defaults allow
+    # MAX_RECEIVERS + MAX_SUBSCRIBERS = 8192 plus uploads and control requests, well inside this.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     stop_grace_period: 30s
 
 volumes:

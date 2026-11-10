@@ -2,6 +2,9 @@ name: Test
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -19,6 +22,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      - if: runner.os == 'Linux'
+        run: bun run format:check
       - run: bun run typecheck
       - run: bun test
       - if: runner.os == 'Linux'
@@ -31,3 +36,49 @@ jobs:
         run: docker compose -p airshare-proxy-ci -f compose.yaml -f compose.proxy.yaml -f compose.smoke.yaml up --build --abort-on-container-exit --exit-code-from smoke
       - if: always() && runner.os == 'Linux'
         run: docker compose -p airshare-proxy-ci -f compose.yaml -f compose.proxy.yaml -f compose.smoke.yaml down --volumes
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - run: bun x playwright install --with-deps chromium
+      - run: bun run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: tests/e2e/.output/
+          retention-days: 7
+
+  # Linux Firefox and WebKit, plus iPhone and Pixel emulation, on demand and weekly; the browsers are installed only on this runner.
+  e2e-browsers:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: bun install --frozen-lockfile
+      - run: bun x playwright install --with-deps chromium firefox webkit
+      - run: bun run test:e2e
+        env:
+          AIRSHARE_E2E_BROWSERS: all
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-browsers-results
+          path: tests/e2e/.output/
+          retention-days: 7

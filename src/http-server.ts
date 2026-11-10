@@ -10,16 +10,29 @@ type HttpOptions = {
   clientKey?: (request: Request) => string;
   maxDiscards?: number;
   maxDiscardsPerClient?: number;
+  /** Whether a waiting request body is probed with 103 interim responses; defaults to true. */
+  livenessHints?: boolean;
 };
 
 const peerAddresses = new WeakMap<Request, string>();
 const abandonedResponses = new WeakSet<Response>();
+const repeatedHeaders = new WeakMap<Response, Record<string, string[]>>();
 type RequestLifecycle = { finished: boolean; callbacks: Set<() => void> };
 const requestLifecycles = new WeakMap<Request, RequestLifecycle>();
 /** Socket provenance is kept out of caller-controlled HTTP headers. */
-export function remoteAddress(request: Request) { return peerAddresses.get(request) ?? "unknown"; }
+export function remoteAddress(request: Request) {
+  return peerAddresses.get(request) ?? "unknown";
+}
 /** Active uploads that lost their consumers must never discard the remaining file in full. */
-export function abandonUpload(response: Response) { abandonedResponses.add(response); return response; }
+export function abandonUpload(response: Response) {
+  abandonedResponses.add(response);
+  return response;
+}
+/** Fetch Headers joins repeated names with commas; these are written as separate header lines. */
+export function withRepeatedHeaders(response: Response, headers: Record<string, string[]>) {
+  repeatedHeaders.set(response, { ...repeatedHeaders.get(response), ...headers });
+  return response;
+}
 /** Includes ignored-body draining; a live eager creation is still in progress. */
 export function onRequestFinished(request: Request, callback: () => void) {
   const lifecycle = requestLifecycles.get(request);
@@ -29,8 +42,15 @@ export function onRequestFinished(request: Request, callback: () => void) {
 
 type DiscardLimits = { active: number; clients: Map<string, number> };
 
-/** Stream Web handlers through node:http, which preserves streaming Content-Length in Bun. */
-export async function serveHttp(options: HttpOptions): Promise<{ port: number; stop: (force?: boolean) => Promise<void> }> {
+/**
+ * Stream Web handlers through node:http, which preserves streaming Content-Length in Bun. Bun.serve sends a live
+ * multi-chunk Response stream chunked and drops its Content-Length (https://github.com/oven-sh/bun/issues/10507),
+ * so curl and browsers couldn't show progress or detect a truncated download. tests/http-server.test.ts fails once
+ * the installed Bun keeps it, which is when this adapter can be reconsidered.
+ */
+export async function serveHttp(
+  options: HttpOptions,
+): Promise<{ port: number; stop: (force?: boolean, graceMs?: number) => Promise<void> }> {
   const sockets = new Set<Socket>();
   const discards: DiscardLimits = { active: 0, clients: new Map() };
   const dispatch = (incoming: IncomingMessage, outgoing: ServerResponse) => {
@@ -43,19 +63,29 @@ export async function serveHttp(options: HttpOptions): Promise<{ port: number; s
   server.timeout = 0;
   server.headersTimeout = 15_000;
   server.on("connection", (socket) => {
+    // Bun 1.4 ignores this on node:http sockets; receivers rely on the relay's first-byte timeout instead.
+    socket.setKeepAlive(true, 30_000);
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(options.port, options.hostname, () => { server.off("error", reject); resolve(); });
+    server.listen(options.port, options.hostname, () => {
+      server.off("error", reject);
+      resolve();
+    });
   });
   let stopping: Promise<void> | undefined;
   return {
     port: (server.address() as { port: number }).port,
-    stop(force = false) {
-      stopping ??= new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      if (force) for (const socket of sockets) socket.destroy();
+    /** Stops listening at once; with force, connections still open after graceMs are destroyed. */
+    stop(force = false, graceMs = 0) {
+      stopping ??= new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      const destroy = () => {
+        for (const socket of sockets) socket.destroy();
+      };
+      if (force && graceMs > 0) setTimeout(destroy, graceMs).unref();
+      else if (force) destroy();
       return stopping;
     },
   };
@@ -72,19 +102,36 @@ function requestUrl(incoming: IncomingMessage): string {
 }
 
 function plain(outgoing: ServerResponse, status: number, message: string) {
-  if (outgoing.headersSent || outgoing.destroyed) { outgoing.destroy(); return; }
-  outgoing.writeHead(status, { "content-type": "text/plain; charset=utf-8", "content-length": Buffer.byteLength(message), connection: "close" });
+  if (outgoing.headersSent || outgoing.destroyed) {
+    outgoing.destroy();
+    return;
+  }
+  outgoing.writeHead(status, {
+    "content-type": "text/plain; charset=utf-8",
+    "content-length": Buffer.byteLength(message),
+    connection: "close",
+  });
   outgoing.end(message);
 }
 
-async function handle(incoming: IncomingMessage, outgoing: ServerResponse, options: HttpOptions, discards: DiscardLimits) {
+async function handle(
+  incoming: IncomingMessage,
+  outgoing: ServerResponse,
+  options: HttpOptions,
+  discards: DiscardLimits,
+) {
   const declared = incoming.headers["content-length"];
   if (declared !== undefined && (!/^\d+$/.test(declared) || Number(declared) > options.maxRequestBodySize)) {
     plain(outgoing, 413, "Request body too large");
     return;
   }
   let url: string;
-  try { url = requestUrl(incoming); } catch { plain(outgoing, 400, "Bad request"); return; }
+  try {
+    url = requestUrl(incoming);
+  } catch {
+    plain(outgoing, 400, "Bad request");
+    return;
+  }
 
   const abort = new AbortController();
   let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -112,15 +159,26 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
   const failBody = (reason: Error) => {
     clearTimeout(discardTimer);
     finishDiscard?.();
-    if (!bodyEnded) { bodyEnded = true; if (!bodyCancelled) bodyController?.error(reason); }
+    if (!bodyEnded) {
+      bodyEnded = true;
+      if (!bodyCancelled) bodyController?.error(reason);
+    }
     if (!abort.signal.aborted) abort.abort(reason);
     cancelResponse(reason);
   };
   const onAborted = () => failBody(new Error("Client disconnected"));
   const onRequestError = (error: Error) => failBody(error);
-  const onRequestClose = () => { if (!incoming.complete) onAborted(); };
-  const onResponseClose = () => { if (!outgoing.writableFinished) onAborted(); cleanup(); };
-  const onResponseError = (error: Error) => { failBody(error); outgoing.destroy(); };
+  const onRequestClose = () => {
+    if (!incoming.complete) onAborted();
+  };
+  const onResponseClose = () => {
+    if (!outgoing.writableFinished) onAborted();
+    cleanup();
+  };
+  const onResponseError = (error: Error) => {
+    failBody(error);
+    outgoing.destroy();
+  };
   const onData = (chunk: Buffer) => {
     if (!discarding) incoming.pause();
     received += chunk.byteLength;
@@ -132,23 +190,30 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
     if (discarding) {
       if (boundedDiscard && received - discardStartedAtBytes >= 1024 * 1024) finishDiscard?.();
       else if (!boundedDiscard) resetDiscardTimeout();
-    }
-    else if (!bodyEnded && !bodyCancelled) bodyController!.enqueue(chunk);
+    } else if (!bodyEnded && !bodyCancelled) bodyController!.enqueue(chunk);
   };
   const onEnd = () => {
     clearTimeout(discardTimer);
     finishDiscard?.();
-    if (!bodyEnded) { bodyEnded = true; if (!bodyCancelled) bodyController?.close(); }
+    if (!bodyEnded) {
+      bodyEnded = true;
+      if (!bodyCancelled) bodyController?.close();
+    }
     if (outgoing.writableFinished) cleanup();
   };
   const cleanup = () => {
     clearTimeout(discardTimer);
     clearInterval(processingTimer);
-    releaseDiscard?.(); releaseDiscard = undefined;
+    releaseDiscard?.();
+    releaseDiscard = undefined;
     if (lifecycle && !lifecycle.finished) {
       lifecycle.finished = true;
       for (const callback of lifecycle.callbacks) {
-        try { callback(); } catch { console.error("Request lifecycle cleanup failed"); }
+        try {
+          callback();
+        } catch {
+          console.error("Request lifecycle cleanup failed");
+        }
       }
       lifecycle.callbacks.clear();
     }
@@ -170,16 +235,34 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
   // A FIN can sit behind unread eager-upload bytes while IncomingMessage is
   // paused. 103 is understood as informational by nginx (unlike 102). The
   // non-fetching relation has no preload side effect. Back off for live peers.
-  const processingTimer = setInterval(() => {
-    if (hasBody && !bodyEnded && !outgoing.headersSent && !outgoing.destroyed && !outgoing.writableEnded && Date.now() - lastBodyPull >= 1000 && Date.now() >= nextProbeAt && incoming.httpVersion !== "1.0") {
-      try {
-        outgoing.writeEarlyHints({ link: "</healthz>; rel=monitor" });
-        probeDelay = Math.min(30_000, probeDelay * 2);
-        nextProbeAt = Date.now() + probeDelay;
-      } catch (error) { failBody(error instanceof Error ? error : new Error("Client disconnected")); }
-    }
-  }, 1000);
-  processingTimer.unref();
+  const hasBody =
+    incoming.method !== "GET" &&
+    incoming.method !== "HEAD" &&
+    (declared !== undefined || incoming.headers["transfer-encoding"] !== undefined);
+  const probing = options.livenessHints ?? true;
+  const processingTimer =
+    hasBody && probing
+      ? setInterval(() => {
+          const idle = Date.now() - lastBodyPull >= 1000 && Date.now() >= nextProbeAt;
+          if (
+            !bodyEnded &&
+            !outgoing.headersSent &&
+            !outgoing.destroyed &&
+            !outgoing.writableEnded &&
+            idle &&
+            incoming.httpVersion !== "1.0"
+          ) {
+            try {
+              outgoing.writeEarlyHints({ link: "</healthz>; rel=monitor" });
+              probeDelay = Math.min(30_000, probeDelay * 2);
+              nextProbeAt = Date.now() + probeDelay;
+            } catch (error) {
+              failBody(error instanceof Error ? error : new Error("Client disconnected"));
+            }
+          }
+        }, 1000)
+      : undefined;
+  processingTimer?.unref();
   incoming.on("aborted", onAborted);
   incoming.on("error", onRequestError);
   incoming.on("close", onRequestClose);
@@ -187,38 +270,63 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
   outgoing.on("error", onResponseError);
   outgoing.on("finish", cleanup);
   incoming.pause();
-  const hasBody = incoming.method !== "GET" && incoming.method !== "HEAD" && (declared !== undefined || incoming.headers["transfer-encoding"] !== undefined);
-  const body = hasBody ? new ReadableStream<Uint8Array>({
-    start(controller) {
-      bodyController = controller;
-      incoming.on("data", onData);
-      incoming.on("end", onEnd);
-    },
-    pull() {
-      lastBodyPull = Date.now();
-      probeDelay = 1000; nextProbeAt = lastBodyPull + probeDelay;
-      if (incoming.headers.expect?.toLowerCase() === "100-continue" && !outgoing.headersSent && !outgoing.writableEnded) {
-        outgoing.writeContinue();
-        delete incoming.headers.expect;
-      }
-      incoming.resume();
-    },
-    cancel() { bodyCancelled = true; incoming.pause(); },
-  }, { highWaterMark: 0 }) : undefined;
+  const body = hasBody
+    ? new ReadableStream<Uint8Array>(
+        {
+          start(controller) {
+            bodyController = controller;
+            incoming.on("data", onData);
+            incoming.on("end", onEnd);
+          },
+          pull() {
+            lastBodyPull = Date.now();
+            probeDelay = 1000;
+            nextProbeAt = lastBodyPull + probeDelay;
+            if (
+              incoming.headers.expect?.toLowerCase() === "100-continue" &&
+              !outgoing.headersSent &&
+              !outgoing.writableEnded
+            ) {
+              outgoing.writeContinue();
+              delete incoming.headers.expect;
+            }
+            incoming.resume();
+          },
+          cancel() {
+            bodyCancelled = true;
+            incoming.pause();
+          },
+        },
+        { highWaterMark: 0 },
+      )
+    : undefined;
 
   try {
     const headers = new Headers();
-    for (let index = 0; index < incoming.rawHeaders.length; index += 2) headers.append(incoming.rawHeaders[index]!, incoming.rawHeaders[index + 1]!);
-    const request = new Request(url, { method: incoming.method, headers, body, signal: abort.signal, duplex: "half" } as RequestInit);
+    for (let index = 0; index < incoming.rawHeaders.length; index += 2)
+      headers.append(incoming.rawHeaders[index]!, incoming.rawHeaders[index + 1]!);
+    const request = new Request(url, {
+      method: incoming.method,
+      headers,
+      body,
+      signal: abort.signal,
+      duplex: "half",
+    } as RequestInit);
     peerAddresses.set(request, incoming.socket.remoteAddress ?? "unknown");
     lifecycle = { finished: false, callbacks: new Set() };
     requestLifecycles.set(request, lifecycle);
     let response: Response;
-    try { response = await options.fetch(request); }
-    catch (error) {
+    try {
+      response = await options.fetch(request);
+    } catch (error) {
       if (abort.signal.aborted || outgoing.writableEnded || outgoing.destroyed) return;
-      try { response = options.error?.(error instanceof Error ? error : new Error("Request failed")) ?? new Response("Internal server error", { status: 500 }); }
-      catch { response = new Response("Internal server error", { status: 500 }); }
+      try {
+        response =
+          options.error?.(error instanceof Error ? error : new Error("Request failed")) ??
+          new Response("Internal server error", { status: 500 });
+      } catch {
+        response = new Response("Internal server error", { status: 500 });
+      }
     }
     if (abort.signal.aborted || outgoing.writableEnded || outgoing.destroyed) {
       void response.body?.cancel(abort.signal.reason).catch(() => {});
@@ -231,24 +339,31 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
       const count = discards.clients.get(key) ?? 0;
       if (discards.active >= (options.maxDiscards ?? 64) || count >= (options.maxDiscardsPerClient ?? 8)) {
         void response.body?.cancel().catch(() => {});
-        response = new Response("Too many concurrent ignored uploads", { status: 429, headers: { "content-type": "text/plain; charset=utf-8", "retry-after": "1", connection: "close" } });
+        const headers = { "content-type": "text/plain; charset=utf-8", "retry-after": "1", connection: "close" };
+        response = new Response("Too many concurrent ignored uploads", { status: 429, headers });
         boundedDiscard = true;
       } else {
-        discards.active++; discards.clients.set(key, count + 1);
+        discards.active++;
+        discards.clients.set(key, count + 1);
         releaseDiscard = () => {
           discards.active--;
           const next = (discards.clients.get(key) ?? 1) - 1;
-          if (next) discards.clients.set(key, next); else discards.clients.delete(key);
+          if (next) discards.clients.set(key, next);
+          else discards.clients.delete(key);
         };
       }
     }
     const lengthHeader = response.headers.get("content-length");
     const length = lengthHeader === null ? undefined : Number(lengthHeader);
-    if (length !== undefined && (!/^\d+$/.test(lengthHeader!) || !Number.isSafeInteger(length))) throw new Error("Invalid response length");
+    if (length !== undefined && (!/^\d+$/.test(lengthHeader!) || !Number.isSafeInteger(length)))
+      throw new Error("Invalid response length");
     const headerEntries: Record<string, string | string[]> = {};
-    for (const [name, value] of response.headers) if (name !== "set-cookie" && (name !== "transfer-encoding" || length === undefined)) headerEntries[name] = value;
+    for (const [name, value] of response.headers) {
+      if (name !== "set-cookie" && (name !== "transfer-encoding" || length === undefined)) headerEntries[name] = value;
+    }
     const cookies = response.headers.getSetCookie();
     if (cookies.length) headerEntries["set-cookie"] = cookies;
+    Object.assign(headerEntries, repeatedHeaders.get(response));
     // A client waiting for Continue has not sent a body to drain.
     if (hasBody && !bodyEnded && (expectContinue || boundedDiscard)) headerEntries.connection = "close";
     outgoing.writeHead(response.status, headerEntries);
@@ -256,7 +371,13 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
       if (hasBody && !bodyEnded && !expectContinue) {
         discarding = true;
         discardStartedAtBytes = received;
-        const discarded = new Promise<void>((resolve) => { finishDiscard = () => { if (boundedDiscard) incoming.pause(); clearTimeout(discardTimer); resolve(); }; });
+        const discarded = new Promise<void>((resolve) => {
+          finishDiscard = () => {
+            if (boundedDiscard) incoming.pause();
+            clearTimeout(discardTimer);
+            resolve();
+          };
+        });
         if (boundedDiscard) discardTimer = setTimeout(() => finishDiscard?.(), releaseDiscard ? 250 : 0);
         else resetDiscardTimeout();
         incoming.resume();
@@ -294,7 +415,13 @@ async function handle(incoming: IncomingMessage, outgoing: ServerResponse, optio
     else plain(outgoing, 500, "Internal server error");
   } finally {
     // Never await arbitrary producer cancellation: its hook may itself remain pending.
-    if (responseReader) { try { responseReader.releaseLock(); } catch { /* a pending cancel owns the reader */ } }
+    if (responseReader) {
+      try {
+        responseReader.releaseLock();
+      } catch {
+        /* a pending cancel owns the reader */
+      }
+    }
   }
 }
 
@@ -306,8 +433,14 @@ function waitForDrain(outgoing: ServerResponse, signal: AbortSignal): Promise<vo
       outgoing.off("close", onClose);
       signal.removeEventListener("abort", onClose);
     };
-    const onDrain = () => { cleanup(); resolve(); };
-    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
     const onClose = () => onError(new Error("Client disconnected"));
     outgoing.once("drain", onDrain);
     outgoing.once("error", onError);

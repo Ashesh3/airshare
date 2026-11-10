@@ -11,16 +11,16 @@ export function qrTerminal(text: string): Promise<string> {
 }
 
 /**
- * curl -L discards redirect bodies, but -D - prints these rows immediately.
- * Fetch Headers accepts Latin-1 code units; Bun writes those bytes unchanged.
- * Encoding each UTF-8 row as Latin-1 preserves the block glyphs on the wire.
- * Numbered names keep rows separate (Headers combines duplicate field names).
- * Guards preserve each row's quiet zone: Headers trims outer ASCII whitespace.
+ * Rows for repeated `com.station307.human.qr-code` headers, which `curl -D -` prints before following a redirect.
+ * HTTP trims the outer spaces of a header value, so each row's quiet zone ends in no-break spaces instead.
+ * node:http writes header strings as Latin-1, so each UTF-8 row is passed as Latin-1 code units.
  */
-export async function qrHeaders(text: string): Promise<Record<string, string>> {
-  const rows = (await qrTerminal(text)).split("\n");
-  return Object.fromEntries(rows.map((row, index) => [
-    `x-airshare-human-qr-${String(index).padStart(2, "0")}`,
-    Buffer.from(`|${row}|`, "utf8").toString("latin1"),
-  ]));
+export async function qrHeaderRows(text: string): Promise<string[]> {
+  const rows = (await qrTerminal(text)).split("\n").filter((row) => row.length > 0);
+  return rows.map((row) =>
+    Buffer.from(
+      row.replace(/^ +| +$/g, (spaces) => "\u00a0".repeat(spaces.length)),
+      "utf8",
+    ).toString("latin1"),
+  );
 }

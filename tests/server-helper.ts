@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,19 +7,43 @@ export type RunningServer = {
   base: string;
   close: () => Promise<void>;
   logs: () => string;
+  /** With `realShutdown`: sends SIGTERM and resolves with the ms the process took to exit on its own (Infinity if killed after 5 s). */
+  terminate: () => Promise<number>;
 };
 
-export async function startServer(env: Record<string, string> = {}): Promise<RunningServer> {
-  const child = Bun.spawn([process.execPath, "src/server.ts"], {
+/**
+ * `graceful` runs the server's own SIGTERM shutdown on close; a plain kill skips it on Windows.
+ * `realShutdown` lets `terminate` deliver SIGTERM with no forced exit: a real signal where the
+ * platform has one, the launcher's emitted SIGTERM on Windows.
+ */
+export async function startServer(
+  env: Record<string, string> = {},
+  { graceful = false, realShutdown = false } = {},
+): Promise<RunningServer> {
+  const launcher = graceful || (realShutdown && process.platform === "win32");
+  const child = Bun.spawn([process.execPath, launcher ? "tests/graceful-server.ts" : "src/server.ts"], {
     cwd: fileURLToPath(new URL("../", import.meta.url)),
-    env: { ...process.env, HOST: "127.0.0.1", PORT: "0", DATA_DIR: ":memory:", ...env },
+    // An ambient deployment PUBLIC_URL must never leak into local fixtures.
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: "0",
+      DATA_DIR: ":memory:",
+      PUBLIC_URL: "",
+      ...(realShutdown ? { AIRSHARE_TEST_NATURAL_EXIT: "1" } : {}),
+      ...env,
+    },
+    stdin: launcher ? "pipe" : "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
   let output = "";
   let resolveReady!: (value: string) => void;
   let rejectReady!: (error: Error) => void;
-  const ready = new Promise<string>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  const ready = new Promise<string>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
   const read = async (stream: ReadableStream<Uint8Array>) => {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -39,8 +63,31 @@ export async function startServer(env: Record<string, string> = {}): Promise<Run
     return {
       base,
       logs: () => output,
+      terminate: async () => {
+        const started = Date.now();
+        if (launcher) {
+          const stdin = child.stdin as import("bun").FileSink;
+          stdin.write("stop\n");
+          await stdin.flush();
+        } else child.kill("SIGTERM");
+        let killed = false;
+        const timer = setTimeout(() => {
+          killed = true;
+          child.kill("SIGKILL");
+        }, 5000);
+        await child.exited;
+        clearTimeout(timer);
+        return killed ? Infinity : Date.now() - started;
+      },
       close: async () => {
-        child.kill();
+        if (graceful && child.exitCode === null) {
+          const stdin = child.stdin as import("bun").FileSink;
+          stdin.write("stop\n");
+          await stdin.flush();
+          const timer = setTimeout(() => child.kill(), 5000);
+          await child.exited;
+          clearTimeout(timer);
+        } else child.kill();
         await child.exited;
         await Promise.all(drains);
       },
@@ -66,7 +113,9 @@ export async function createChannel(server: RunningServer, file: Record<string, 
 }
 
 export async function channelStatus(server: RunningServer, channel: { id: string }) {
-  return fetch(`${server.base}/api/channels/${channel.id}`, { signal: AbortSignal.timeout(3000) }).then((response) => response.json()) as Promise<any>;
+  return fetch(`${server.base}/api/channels/${channel.id}`, { signal: AbortSignal.timeout(3000) }).then((response) =>
+    response.json(),
+  ) as Promise<any>;
 }
 
 export async function until<T>(probe: () => Promise<T>, accept: (value: T) => boolean, timeout = 2500): Promise<T> {
@@ -80,9 +129,20 @@ export async function until<T>(probe: () => Promise<T>, accept: (value: T) => bo
   throw new Error(`Condition did not become true: ${JSON.stringify(last!)}`);
 }
 
+/** Files in a data directory that still contain any of the given raw keys. */
+export async function rawKeysIn(dir: string, keys: string[]) {
+  const found: string[] = [];
+  for (const name of await readdir(dir)) {
+    const bytes = Buffer.from(await Bun.file(join(dir, name)).arrayBuffer());
+    for (const key of keys) if (bytes.includes(key)) found.push(`${name}: ${key}`);
+  }
+  return found;
+}
+
 export async function temporaryDataDir() {
   const path = await mkdtemp(join(tmpdir(), "airshare-server-test-"));
-  return { path, remove: () => rm(path, { force: true, recursive: true }) };
+  // Windows can hold SQLite files for a moment after the server process exits.
+  return { path, remove: () => rm(path, { force: true, recursive: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 export function sseReader(response: Response) {
