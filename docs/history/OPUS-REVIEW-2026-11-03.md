@@ -2,7 +2,7 @@
 
 Reviewer: `/root/opus_independent_review`. Read-only with respect to the repository and git. No Chrome, no subagents. All runtime checks ran on private copies bound to `127.0.0.1` ports 47391–47402; every test server has been stopped. No capability keys appear in this report.
 
-## UI CORRECTION REVIEW — Station307 visual-parity pass (snapshot `%TEMP%\airshare-opus-ui-v8-150235`)
+## UI CORRECTION REVIEW — Station307 visual-parity pass (snapshot `<temp>\airshare-opus-ui-v8-150235`)
 
 **Scope.** Read-only and focused.
 
@@ -44,7 +44,7 @@ Reviewer: `/root/opus_independent_review`. Read-only with respect to the reposit
 - Info pages return `200 text/html` with `no-referrer` and `X-Frame-Options: DENY`, no scripts, and an empty `HEAD`.
 - The WOFF2 files are valid (`wOF2` magic): unmodified Lato and Kanit Latin subsets with SIL OFL 1.1 notices and documented sources. `styles.css` loads only local `/fonts/` URLs, with no `@import` or CDN, and has no hashed Svelte selectors or Station mentions, so it is not a verbatim bundle copy.
 - The production image copies `public/` (fonts included); only the test stage adds `scripts/`.
-- The in-repo `docs/OPUS-REVIEW-2026-11-03.md` contains no capability-like hex keys.
+- The in-repo `docs/history/OPUS-REVIEW-2026-11-03.md` contains no capability-like hex keys.
 
 **Non-blocking notes.**
 
@@ -159,7 +159,7 @@ The runtime files are byte-identical to the versions already reviewed: `server.t
   - there's no frontend safety net for a wrong `PUBLIC_URL`.
 - Explicit verification limits, not represented as tested: physical Android or iOS, Safari, a public ACME certificate, and an Indian host or WAN benchmark.
 
-## FINAL VERDICT — current tree, snapshot v6 (`%TEMP%\airshare-opus-final-v6-135046`, 13:50)
+## FINAL VERDICT — current tree, snapshot v6 (`<temp>\airshare-opus-final-v6-135046`, 13:50)
 
 > **Superseded:** P1-E below was resolved by the static-proxy fix; see ACCEPTANCE above.
 
@@ -230,12 +230,12 @@ The runtime files are byte-identical to the versions already reviewed: `server.t
 
 **Snapshots.**
 
-- v4 (`%TEMP%\airshare-opus-final-v4-132319`):
+- v4 (`<temp>\airshare-opus-final-v4-132319`):
   - `server.ts` `1E352C6BA1E9`
   - `http-server.ts` `26F705DA19AC`
   - `admission.ts` `D74AA7E900D8`
   - `transfer.js` `9805AFA1298F`
-- v5 (`%TEMP%\airshare-opus-final-v5-133404`):
+- v5 (`<temp>\airshare-opus-final-v5-133404`):
   - `server.ts` `75DB9C3232F3`
   - `nginx.conf` `9BC1E7DB9702`
   - `http-server.ts` unchanged from v4
@@ -328,8 +328,8 @@ Also fixed:
 | --- | --- |
 | Baseline | `64e8756` (initial release) |
 | Branch | `codex/station307-parity-audit` (uncommitted working tree plus untracked files) |
-| Snapshot v2 (server marked ready) | `%TEMP%\airshare-opus-final-v2-125611` |
-| Snapshot v3 | `%TEMP%\airshare-opus-final-v3-130345` |
+| Snapshot v2 (server marked ready) | `<temp>\airshare-opus-final-v2-125611` |
+| Snapshot v3 | `<temp>\airshare-opus-final-v3-130345` |
 | `src/server.ts` | `246820A53C4F…`, identical in v2 and v3 |
 | `src/http-server.ts` | v2 `511B6A5056AC`; v3 `708C0F94D473`; repo at report time `48C271E7671A` (reviewed) |
 | `public/transfer.js` / `app.js` / `sender.js` / `receiver.js` | `B333BED36F19` / `BEC84BC3050A` / `AF52DB2FEE89` / `24C373CC8098`, unchanged v2→v3 |
@@ -554,4 +554,4 @@ No receive gap exceeded 100 ms, so this is throughput collapse, not a hang. Per 
   - `rv-proto.mjs` and `rv-proto2.mjs`: waiting-receiver release; `GET`-with-body framing.
   - `rv-capacity.mjs`: lockout and creation-spam throughput.
   - `rv-capacity2.mjs`: restart lockout and status-spam control.
-- **Initial-review scripts** (baseline `64e8756`) in `%TEMP%\airshare-opus-review-d62f1607`.
+- **Initial-review scripts** (baseline `64e8756`) in `<temp>\airshare-opus-review-d62f1607`.

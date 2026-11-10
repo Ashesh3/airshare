@@ -11,11 +11,17 @@ const clients = new Set<ReturnType<typeof Bun.spawn>>();
 const digest = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
 
 function curl(args: string[], input?: Uint8Array) {
-  const child = Bun.spawn(["curl", "--silent", "--show-error", "--noproxy", "*", "--connect-timeout", "3", "--max-time", "20", ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(
+    ["curl", "--silent", "--show-error", "--noproxy", "*", "--connect-timeout", "3", "--max-time", "20", ...args],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+  );
   clients.add(child);
   const output = new Response(child.stdout).text();
   const error = new Response(child.stderr).text();
-  const written = (async () => { if (input) child.stdin.write(input); await child.stdin.end(); })().catch(() => {});
+  const written = (async () => {
+    if (input) child.stdin.write(input);
+    await child.stdin.end();
+  })().catch(() => {});
   return {
     async done() {
       const [code, stdout, stderr] = await Promise.all([child.exited, output, error, written]);
@@ -39,13 +45,17 @@ async function receive(url: string) {
 try {
   const deadline = Date.now() + 10_000;
   while (true) {
-    try { if ((await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(1000) })).ok) break; } catch {}
+    try {
+      if ((await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(1000) })).ok) break;
+    } catch {}
     assert(Date.now() < deadline, "Proxy did not become healthy");
     await Bun.sleep(100);
   }
 
-  // 340 Devanagari characters plus '.bin' is exactly the allowed 1024 UTF-8 bytes.
+  // 340 Devanagari characters plus '.bin' is the longest name a channel accepts, 1024 UTF-8 bytes, so the request and
+  // redirect lines through nginx are as long as they get. A terminal upload keeps 255 bytes of it: 83 whole characters.
   const name = "र".repeat(340) + ".bin";
+  const stored = "र".repeat(83) + ".bin";
   const payload = randomBytes(2 * 1024 * 1024 + 19);
   const source = join(directory, "source.bin");
   const initialHeaders = join(directory, "initial.headers");
@@ -62,12 +72,26 @@ try {
   const [received] = await Promise.all([receiving, uploading]);
   assert.equal(received.bytes.length, payload.length);
   assert.equal(digest(received.bytes), digest(payload));
-  assert(received.headers.get("content-disposition")?.includes(encodeURIComponent(name)));
+  assert(
+    received.headers.get("content-disposition")?.includes(encodeURIComponent(stored)),
+    received.headers.get("content-disposition") ?? "no Content-Disposition",
+  );
 
   // A preparation response has the same large URL headers. Its empty request
   // must not advertise a zero-byte file or redirect a non-rewindable stdin body.
   const preparedHeaders = join(directory, "prepared.headers");
-  const senderUrl = (await curl(["--fail", "-X", "POST", "-H", "content-length: 0", "-D", preparedHeaders, `${base}/xfr/${encodeURIComponent(name)}?prepare=1`]).done()).trim();
+  const senderUrl = (
+    await curl([
+      "--fail",
+      "-X",
+      "POST",
+      "-H",
+      "content-length: 0",
+      "-D",
+      preparedHeaders,
+      `${base}/xfr/${encodeURIComponent(name)}?prepare=1`,
+    ]).done()
+  ).trim();
   const prepared = await Bun.file(preparedHeaders).text();
   assert.match(prepared, /^HTTP\/\S+ 201/m);
   const pipePayload = randomBytes(3 * 1024 * 1024 + 17);
@@ -77,13 +101,23 @@ try {
   const [pipeReceived] = await Promise.all([pipeReceiving, pipeUploading]);
   assert.equal(pipeReceived.bytes.length, pipePayload.length);
   assert.equal(digest(pipeReceived.bytes), digest(pipePayload));
-  console.log(JSON.stringify({
-    longDomain: new URL(base).hostname, filenameUtf8Bytes: Buffer.byteLength(name),
-    redirectHeaderBytes: Buffer.byteLength(initial),
-    cli: { status: 307, bytes: received.bytes.length, integrity: true },
-    preparedStdin: { status: 201, bytes: pipeReceived.bytes.length, integrity: true },
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        longDomain: new URL(base).hostname,
+        filenameUtf8Bytes: Buffer.byteLength(name),
+        redirectHeaderBytes: Buffer.byteLength(initial),
+        cli: { status: 307, bytes: received.bytes.length, integrity: true },
+        preparedStdin: { status: 201, bytes: pipeReceived.bytes.length, integrity: true },
+      },
+      null,
+      2,
+    ),
+  );
 } finally {
-  for (const child of clients) { if (child.exitCode === null) child.kill(); await child.exited; }
+  for (const child of clients) {
+    if (child.exitCode === null) child.kill();
+    await child.exited;
+  }
   await rm(directory, { recursive: true, force: true });
 }

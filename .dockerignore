@@ -8,3 +8,7 @@ data/
 .env
 docs/
 benchmark-results*.json
+# Browser tests run on the host or in CI, not in the image; their traces and reports can be large.
+tests/e2e/
+playwright-report/
+test-results/

@@ -13,6 +13,8 @@ COPY public ./public
 COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts
+# Tests check the deployment defaults in the Compose file and the README's configuration table.
+COPY compose.yaml README.md ./
 CMD ["bun", "test"]
 
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
@@ -31,7 +33,9 @@ ENV DATA_DIR=/app/data
 EXPOSE 3070
 USER bun
 
+# busybox wget is far cheaper than starting a second Bun every 30 s.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.PORT || "3070") + "/healthz"); if (!r.ok) process.exit(1)'
+  CMD wget -qO- "http://127.0.0.1:${PORT:-3070}/healthz" >/dev/null || exit 1
 
-CMD ["bun", "run", "start"]
+# Bun itself receives SIGTERM, with no package-script wrapper in between.
+CMD ["bun", "src/server.ts"]
