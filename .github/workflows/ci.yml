@@ -56,6 +56,8 @@ jobs:
         with:
           name: e2e-results
           path: tests/e2e/.output/
+          # .output is a dot directory, which upload-artifact skips unless told otherwise.
+          include-hidden-files: true
           retention-days: 7
 
   # Linux Firefox and WebKit, plus iPhone and Pixel emulation, on demand and weekly; the browsers are installed only on this runner.
@@ -81,4 +83,5 @@ jobs:
         with:
           name: e2e-browsers-results
           path: tests/e2e/.output/
+          include-hidden-files: true
           retention-days: 7
